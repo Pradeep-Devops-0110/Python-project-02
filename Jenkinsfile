@@ -1,10 +1,10 @@
-pipeline {
+﻿pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "flask-posts"
-        IMAGE_TAG = "dev"
-        REGISTRY = "docker.io/rvp0110"   // change if using DockerHub or another registry
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')   // Jenkins credentials ID
+        DOCKER_IMAGE = "rvp0110/flask-posts"
+        KUBE_CONFIG = credentials('kubeconfig-creds')            // Jenkins credentials ID for kubeconfig
     }
 
     stages {
@@ -16,35 +16,59 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+                script {
+                    def imageTag = "v${env.BUILD_NUMBER}"
+                    sh "docker build --no-cache -t ${DOCKER_IMAGE}:${imageTag} ."
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    def imageTag = "v${env.BUILD_NUMBER}"
+                    sh "echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin"
+                    sh "docker push ${DOCKER_IMAGE}:${imageTag}"
+                }
             }
         }
 
         stage('Run Migrations') {
             steps {
-                sh '''
-                docker run --rm \
-                  -e SECRET_KEY=dev \
-                  -e JWT_SECRET_KEY=dev \
-                  -e DATABASE_URL="sqlite:///local.db" \
-                  $IMAGE_NAME:$IMAGE_TAG \
-                  flask --app flask_app.app:create_app db upgrade
-                '''
+                script {
+                    def imageTag = "v${env.BUILD_NUMBER}"
+                    sh """
+                    docker run --rm \
+                        -e SECRET_KEY=dev \
+                        -e JWT_SECRET_KEY=dev \
+                        -e DATABASE_URL=sqlite:///local.db \
+                        ${DOCKER_IMAGE}:${imageTag} \
+                        flask --app flask_app.app:create_app db upgrade
+                    """
+                }
             }
         }
 
-        stage('Push to Registry') {
+        stage('Deploy to Kubernetes') {
             steps {
-                sh 'docker tag $IMAGE_NAME:$IMAGE_TAG $REGISTRY/$IMAGE_NAME:$IMAGE_TAG'
-                sh 'docker push $REGISTRY/$IMAGE_NAME:$IMAGE_TAG'
+                script {
+                    def imageTag = "v${env.BUILD_NUMBER}"
+                    sh """
+                    kubectl --kubeconfig=${KUBE_CONFIG} set image deployment/flask-posts \
+                        flask-posts=${DOCKER_IMAGE}:${imageTag}
+                    kubectl --kubeconfig=${KUBE_CONFIG} rollout restart deployment flask-posts
+                    """
+                }
             }
         }
+    }
 
-        stage('Deploy to Minikube') {
-            steps {
-                sh 'kubectl apply -f k8s/deployment.yaml'
-                sh 'kubectl apply -f k8s/service.yaml'
-            }
+    post {
+        success {
+            echo "✅ Deployment successful: ${DOCKER_IMAGE}:v${env.BUILD_NUMBER}"
+        }
+        failure {
+            echo "❌ Build or deploy failed. Check logs."
         }
     }
 }
