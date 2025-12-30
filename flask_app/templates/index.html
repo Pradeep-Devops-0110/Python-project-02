@@ -1,0 +1,19 @@
+<!-- templates/index.html -->
+{% extends "base.html" %}
+{% block content %}
+<h1>Posts</h1>
+{% if user %}
+<p>Logged in as {{ user.email }}</p>
+{% endif %}
+<form method="post" action="/search">
+    <input type="text" name="q" placeholder="Search posts">
+    <button type="submit">Search</button>
+</form>
+<ul>
+    {% for p in posts %}
+    <li><strong>{{ p.title }}</strong><br>{{ p.body }}<br><small>{{ p.created_at }}</small></li>
+    {% else %}
+    <li>No posts yet.</li>
+    {% endfor %}
+</ul>
+{% endblock %}

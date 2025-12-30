@@ -1,0 +1,8 @@
+# k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flask-posts-config
+data:
+  FLASK_ENV: "prod"
+  PORT: "5000"
