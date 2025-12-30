@@ -2,9 +2,8 @@
     agent any
 
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')   // Jenkins credentials ID
         DOCKER_IMAGE = "rvp0110/flask-posts"
-        KUBE_CONFIG = credentials('kubeconfig-creds')            // Jenkins credentials ID for kubeconfig
+        KUBE_CONFIG = credentials('kubeconfig-file')   // Jenkins credentials ID for kubeconfig
     }
 
     stages {
@@ -26,9 +25,14 @@
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    def imageTag = "v${env.BUILD_NUMBER}"
-                    sh "echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin"
-                    sh "docker push ${DOCKER_IMAGE}:${imageTag}"
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
+                                                      usernameVariable: 'DOCKER_USER',
+                                                      passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                            docker push rvp0110/flask-posts:v$BUILD_NUMBER
+                        '''
+                    }
                 }
             }
         }
@@ -38,12 +42,12 @@
                 script {
                     def imageTag = "v${env.BUILD_NUMBER}"
                     sh """
-                    docker run --rm \
-                        -e SECRET_KEY=dev \
-                        -e JWT_SECRET_KEY=dev \
-                        -e DATABASE_URL=sqlite:///local.db \
-                        ${DOCKER_IMAGE}:${imageTag} \
-                        flask --app flask_app.app:create_app db upgrade
+                        docker run --rm \
+                            -e SECRET_KEY=dev \
+                            -e JWT_SECRET_KEY=dev \
+                            -e DATABASE_URL=sqlite:///local.db \
+                            ${DOCKER_IMAGE}:${imageTag} \
+                            flask --app flask_app.app:create_app db upgrade
                     """
                 }
             }
@@ -54,9 +58,9 @@
                 script {
                     def imageTag = "v${env.BUILD_NUMBER}"
                     sh """
-                    kubectl --kubeconfig=${KUBE_CONFIG} set image deployment/flask-posts \
-                        flask-posts=${DOCKER_IMAGE}:${imageTag}
-                    kubectl --kubeconfig=${KUBE_CONFIG} rollout restart deployment flask-posts
+                        kubectl --kubeconfig=${KUBE_CONFIG} set image deployment/flask-posts \
+                            flask-posts=${DOCKER_IMAGE}:${imageTag}
+                        kubectl --kubeconfig=${KUBE_CONFIG} rollout restart deployment flask-posts
                     """
                 }
             }
